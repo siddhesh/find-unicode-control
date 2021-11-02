@@ -16,6 +16,11 @@ import sys, os, argparse, re, unicodedata, subprocess
 import importlib
 from stat import *
 
+try:
+    import magic
+except ImportError:
+    magic = None
+
 def _unicode(line, encoding):
     if isinstance(line, str):
         return line
@@ -74,7 +79,7 @@ def analyze_text_detailed(filename, text, disallowed, msg):
     warned = False
     for t in text:
         line = line + 1
-        subset = [c for c in t if chr(ord(c)) in disallowed]
+        subset = [c for c in t if _chr(ord(c)) in disallowed]
         if subset:
             print('%s:%d %s: %s' % (filename, line, msg, subset))
             warned = True
@@ -93,16 +98,22 @@ def analyze_text(filename, text, disallowed, msg):
         print('%s: %s: %s' % (filename, msg, text & disallowed))
     else:
         eprint('%s: OK' % filename)
-
-def should_read(f):
+		
+def get_mime(f):
+    if magic:
+        return magic.detect_from_filename(f).mime_type
     args = ['file', '--mime-type', f]
     proc = subprocess.Popen(args, stdout=subprocess.PIPE)
     m = [decodeline(x[:-1]) for x in proc.stdout][0].split(':')[1].strip()
+    return m
+
+def should_read(f):
     # Fast check, just the file name.
     if [e for e in scan_exclude if re.search(e, f)]:
         return False
 
     # Slower check, mime type.
+    m = get_mime(f)
     if not 'text/' in m \
             or [e for e in scan_exclude_mime if re.search(e, m)]:
         return False
