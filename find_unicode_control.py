@@ -131,7 +131,11 @@ def analyze_file(f, disallowed, msg):
 
 # Actual implementation of the recursive descent into directories.
 def analyze_any(p, disallowed, msg, dirs_seen):
-    stat_res = os.stat(p)
+    try:
+        stat_res = os.stat(p)
+    except Exception as e:
+        eprint('%s: %s' % (p, e))
+        return
 
     mode = stat_res.st_mode
     if S_ISDIR(mode):
