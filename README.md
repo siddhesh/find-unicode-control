@@ -1,13 +1,13 @@
 # find-unicode-control
 
 These scripts look for non-printable unicode characters in all text files in a
-source tree.  `find_unicode_control2.py` should work with python2 as well as
-python3 and not require any dependencies.  `find_unicode_control.py` is
-python3-only and depends on `python-magic`.  They should be functionally the
-same and `find_unicode_control.py` could eventually get disposed.
+source tree.  `find_unicode_control.py` should work with python2 as well as
+python3.  It uses `python-magic` if available to determine file type, or simply
+spawns the `file --mime-type` command.  They should be functionally the same
+and `find_unicode_control.py` could eventually get disposed.
 
 ```
-usage: find_unicode_control2.py [-h] [-p {all,bidi}] [-v] [-c CONFIG] path [path ...]
+usage: find_unicode_control.py [-h] [-p {all,bidi}] [-v] [-c CONFIG] path [path ...]
 
 Look for Unicode control characters
 
@@ -29,7 +29,7 @@ If unicode BIDI control characters or non-printable characters are found in a
 file, it will print output as follows:
 
 ```
-$ python3 find_unicode_control2.py -p bidi *.c
+$ python3 find_unicode_control.py -p bidi *.c
 commenting-out.c: bidirectional control characters: {'\u202e', '\u2066', '\u2069'}
 early-return.c: bidirectional control characters: {'\u2067'}
 stretched-string.c: bidirectional control characters: {'\u202e', '\u2066', '\u2069'}
@@ -39,7 +39,7 @@ Using the `-d` flag, the output is more detailed, showing line numbers in
 files, but this mode is also slower:
 
 ```
-find_unicode_control2.py -p bidi -d .
+find_unicode_control.py -p bidi -d .
 ./commenting-out.c:4 bidirectional control characters: ['\u202e', '\u2066', '\u2069', '\u2066']
 ./commenting-out.c:6 bidirectional control characters: ['\u202e', '\u2066']
 ./early-return.c:4 bidirectional control characters: ['\u2067']
