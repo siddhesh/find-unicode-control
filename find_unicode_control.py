@@ -130,23 +130,32 @@ def analyze_file(f, disallowed, msg):
         eprint('%s: SKIPPED' % f)
 
 # Actual implementation of the recursive descent into directories.
-def analyze_any(p, disallowed, msg):
-    mode = os.stat(p).st_mode
+def analyze_any(p, disallowed, msg, dirs_seen):
+    stat_res = os.stat(p)
+        
+    mode = stat_res.st_mode
     if S_ISDIR(mode):
-        analyze_dir(p, disallowed, msg)
+        # avoid analyzing the same dir twice
+        inode = stat_res.st_ino
+        if inode:
+            if inode in dirs_seen:
+                return
+            dirs_seen.add(inode)
+
+        analyze_dir(p, disallowed, msg, dirs_seen)
     elif S_ISREG(mode):
         analyze_file(p, disallowed, msg)
     else:
         eprint('%s: UNREADABLE' % p)
 
 # Recursively analyze files in the directory.
-def analyze_dir(d, disallowed, msg):
+def analyze_dir(d, disallowed, msg, dirs_seen):
     for f in os.listdir(d):
-        analyze_any(os.path.join(d, f), disallowed, msg)
+        analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
 
-def analyze_paths(paths, disallowed, msg):
+def analyze_paths(paths, disallowed, msg, dirs_seen):
     for p in paths:
-        analyze_any(p, disallowed, msg)
+        analyze_any(p, disallowed, msg, dirs_seen)
 
 # All control characters.  We omit the ascii control characters.
 def nonprint_unicode(c):
@@ -207,4 +216,6 @@ if __name__ == '__main__':
     if args.notests:
         scan_exclude = scan_exclude + [r'/test[^/]+/']
 
-    analyze_paths(args.path, disallowed, msg)
+    dirs_seen = set()
+
+    analyze_paths(args.path, disallowed, msg, dirs_seen)
