@@ -1,6 +1,10 @@
 # find-unicode-control
 
-This script looks for non-printable unicode characters in all text files in a source tree.
+These scripts look for non-printable unicode characters in all text files in a
+source tree.  `find_unicode_control2.py` should work with python2 as well as
+python3 and not require any dependencies.  `find_unicode_control.py` is
+python3-only and depends on `python-magic`.  They should be functionally the
+same and `find_unicode_control.py` could eventually get disposed.
 
 ```
 usage: find_unicode_control2.py [-h] [-p {all,bidi}] [-v] [-c CONFIG] path [path ...]
@@ -20,8 +24,6 @@ optional arguments:
   -c CONFIG, --config CONFIG
                         Configuration file to read settings from.
 ```
-
-`find_unicode_control2.py` should work with both python2 as well as python3.
 
 If unicode BIDI control characters or non-printable characters are found in a
 file, it will print output as follows:
@@ -67,3 +69,11 @@ scan_exclude = [
         r'localedata/tst-langinfo.sh$']
 ```
 
+## Notes
+
+This script was quickly hacked together to scan repositories with mostly LTR,
+unicode content.  If you have RTL content (either in comments, literals or even
+identifiers in code), it will give false warnings that you need to weed out.
+For now you need to exclude such RTL code using `scan_exclude` but a long term
+wish list (if this remains relevant, hopefully more sophisticated RTL
+diagnostics will make it obsolete!) is to handle RTL a bit more intelligently.
