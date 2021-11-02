@@ -10,10 +10,29 @@ There is a second mode enabled with -p which when set to 'all', prints all
 control characters and when set to 'bidi', prints only the 9 bidirectional
 control characters.
 """
+from __future__ import print_function
 
-import sys, os, argparse, re, unicodedata, magic
+import sys, os, argparse, re, unicodedata, subprocess
 import importlib
 from stat import *
+
+try:
+    import magic
+except ImportError:
+    magic = None
+
+def _unicode(line, encoding):
+    if isinstance(line, str):
+        return line
+    return line.decode(encoding)
+
+import platform
+if platform.python_version()[0] == '2':
+    _chr = unichr
+    do_unicode = unicode
+else:
+    _chr = chr
+    do_unicode = _unicode
 
 scan_exclude = [r'\.git/', r'\.hg/', r'\.desktop$', r'ChangeLog$', r'NEWS$',
                 r'\.ppd$', r'\.txt$', r'\.directory$']
@@ -28,9 +47,7 @@ def eprint(*args, **kwargs):
 
 # Decode a single latin1 line.
 def decodeline(inf):
-    if isinstance(inf, str):
-        return inf
-    return inf.decode('latin-1')
+    return do_unicode(inf, 'utf-8')
 
 # Make a text string from a file, attempting to decode from latin1 if necessary.
 # Other non-utf-8 locales are not supported at the moment.
@@ -45,7 +62,7 @@ def getfiletext(filename):
             return None
 
         try:
-            text = ''.join(infile)
+            text = decodeline(''.join(infile))
         except UnicodeDecodeError:
             eprint('%s: Retrying with latin1' % filename)
             try:
@@ -62,7 +79,7 @@ def analyze_text_detailed(filename, text, disallowed, msg):
     warned = False
     for t in text:
         line = line + 1
-        subset = [c for c in t if c in disallowed]
+        subset = [c for c in t if _chr(ord(c)) in disallowed]
         if subset:
             print('%s:%d %s: %s' % (filename, line, msg, subset))
             warned = True
@@ -81,18 +98,25 @@ def analyze_text(filename, text, disallowed, msg):
         print('%s: %s: %s' % (filename, msg, text & disallowed))
     else:
         eprint('%s: OK' % filename)
+		
+def get_mime(f):
+    if magic:
+        return magic.detect_from_filename(f).mime_type
+    args = ['file', '--mime-type', f]
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+    m = [decodeline(x[:-1]) for x in proc.stdout][0].split(':')[1].strip()
+    return m
 
 def should_read(f):
-    m = magic.detect_from_filename(f)
     # Fast check, just the file name.
     if [e for e in scan_exclude if re.search(e, f)]:
         return False
 
     # Slower check, mime type.
-    if not 'text/' in m.mime_type \
-            or [e for e in scan_exclude_mime if re.search(e, m.mime_type)]:
+    m = get_mime(f)
+    if not 'text/' in m \
+            or [e for e in scan_exclude_mime if re.search(e, m)]:
         return False
-
     return True
 
 # Get file text and feed into analyze_text.
@@ -154,21 +178,21 @@ if __name__ == '__main__':
     if not args.nonprint:
         # Formatting control characters in the unicode space.  This includes the
         # bidi control characters.
-        disallowed = set(chr(c) for c in range(sys.maxunicode) if \
-                                 unicodedata.category(chr(c)) == 'Cf')
+        disallowed = set(_chr(c) for c in range(sys.maxunicode) if \
+                                 unicodedata.category(_chr(c)) == 'Cf')
 
         msg = 'unicode control characters'
     elif args.nonprint == 'all':
         # All control characters.
-        disallowed = set(chr(c) for c in range(sys.maxunicode) if \
-                         nonprint_unicode(chr(c)))
+        disallowed = set(_chr(c) for c in range(sys.maxunicode) if \
+                         nonprint_unicode(_chr(c)))
 
         msg = 'disallowed characters'
     else:
         # Only bidi control characters.
         disallowed = set([
-            chr(0x202a), chr(0x202b), chr(0x202c), chr(0x202d), chr(0x202e),
-            chr(0x2066), chr(0x2067), chr(0x2068), chr(0x2069)])
+            _chr(0x202a), _chr(0x202b), _chr(0x202c), _chr(0x202d), _chr(0x202e),
+            _chr(0x2066), _chr(0x2067), _chr(0x2068), _chr(0x2069)])
         msg = 'bidirectional control characters'
 
     if args.config:
