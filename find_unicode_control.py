@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
 """Find unicode control characters in source files
 
 By default the script takes one or more files or directories and looks for
