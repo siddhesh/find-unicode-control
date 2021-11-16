@@ -13,7 +13,7 @@ control characters.
 """
 from __future__ import print_function
 
-import sys, os, argparse, re, unicodedata, subprocess
+import sys, os, argparse, re, unicodedata, subprocess, imp
 import importlib
 from stat import *
 
@@ -99,7 +99,7 @@ def analyze_text(filename, text, disallowed, msg):
         print('%s: %s: %s' % (filename, msg, text & disallowed))
     else:
         eprint('%s: OK' % filename)
-		
+
 def get_mime(f):
     if magic:
         return magic.detect_from_filename(f).mime_type
@@ -210,9 +210,15 @@ if __name__ == '__main__':
         msg = 'bidirectional control characters'
 
     if args.config:
-        spec = importlib.util.spec_from_file_location("settings", args.config)
-        settings = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(settings)
+        if platform.python_version_tuple() >= ('3','4','0'):
+            # load settings file, method for Python >= 3.4
+            spec = importlib.util.spec_from_file_location("settings", args.config)
+            settings = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(settings)
+        else:
+            # load settings file, method for Python < 3.4
+            settings = imp.load_source("settings", args.config)
+
         if hasattr(settings, 'scan_exclude'):
             scan_exclude = scan_exclude + settings.scan_exclude
         if hasattr(settings, 'scan_exclude_mime'):
