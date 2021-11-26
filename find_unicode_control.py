@@ -35,7 +35,25 @@ else:
     _chr = chr
     do_unicode = _unicode
 
-scan_exclude = [r'\.git/', r'\.hg/', r'\.desktop$', r'ChangeLog$', r'NEWS$',
+# .git and .hg will get excluded when they're part of a directory tree being
+# scanned but not when they're explicitly specified as targets.  That is:
+#
+# find_unicode_control.py foo
+#
+# will skip foo/.git but
+#
+# cd foo && find_unicode_control.py .git
+#
+# will read into .git.  I've left it like this on purpose in case someone ever
+# needs to scan inside these directories even though I don't see any reason to
+# do that at the moment.  Also,
+#
+# find_unicode_control.py foo/.git
+#
+# will skip .git and I don't really care much about fixing it myself since you
+# could just pushd/popd your way out of that.  Send a PR if you wish to see that
+# work :)
+scan_exclude = [r'/\.git/', r'/\.hg/', r'\.desktop$', r'ChangeLog$', r'NEWS$',
                 r'\.ppd$', r'\.txt$', r'\.directory$']
 scan_exclude_mime = [r'text/x-po$', r'text/x-tex$', r'text/x-troff$',
                      r'text/html$']
