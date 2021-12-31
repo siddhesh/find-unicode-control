@@ -105,18 +105,22 @@ def analyze_text_detailed(filename, text, disallowed, msg):
     if not warned:
         eprint('%s: OK' % filename)
 
+    return warned
+
 # Look for disallowed characters in the text.  We reduce all characters into a
 # set to speed up analysis.  FIXME: Add a slow mode to get line numbers in files
 # that have these disallowed chars.
 def analyze_text(filename, text, disallowed, msg):
     if detailed_mode:
-        analyze_text_detailed(filename, text, disallowed, msg)
-        return
+        return analyze_text_detailed(filename, text, disallowed, msg)
 
     if not text.isdisjoint(disallowed):
         print('%s: %s: %s' % (filename, msg, text & disallowed))
+        return True
     else:
         eprint('%s: OK' % filename)
+
+    return False
 
 def get_mime(f):
     if magic:
@@ -144,9 +148,11 @@ def analyze_file(f, disallowed, msg):
     if should_read(f):
         text = getfiletext(f)
         if text:
-            analyze_text(f, text, disallowed, msg)
+            return analyze_text(f, text, disallowed, msg)
     else:
         eprint('%s: SKIPPED' % f)
+
+    return False
 
 # Actual implementation of the recursive descent into directories.
 def analyze_any(p, disallowed, msg, dirs_seen):
@@ -165,20 +171,30 @@ def analyze_any(p, disallowed, msg, dirs_seen):
                 return
             dirs_seen.add(inode)
 
-        analyze_dir(p, disallowed, msg, dirs_seen)
+        return analyze_dir(p, disallowed, msg, dirs_seen)
     elif S_ISREG(mode):
-        analyze_file(p, disallowed, msg)
+        return analyze_file(p, disallowed, msg)
     else:
         eprint('%s: UNREADABLE' % p)
 
+    return False
+
 # Recursively analyze files in the directory.
 def analyze_dir(d, disallowed, msg, dirs_seen):
+    warned = False
+
     for f in os.listdir(d):
-        analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+        warned = warned or analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+
+    return warned
 
 def analyze_paths(paths, disallowed, msg, dirs_seen):
+    warned = False
+
     for p in paths:
-        analyze_any(p, disallowed, msg, dirs_seen)
+        warned = warned or analyze_any(p, disallowed, msg, dirs_seen)
+
+    return warned
 
 # All control characters.  We omit the ascii control characters.
 def nonprint_unicode(c):
@@ -247,4 +263,7 @@ if __name__ == '__main__':
 
     dirs_seen = set()
 
-    analyze_paths(args.path, disallowed, msg, dirs_seen)
+    warned = analyze_paths(args.path, disallowed, msg, dirs_seen)
+
+    if warned:
+        exit(1)
