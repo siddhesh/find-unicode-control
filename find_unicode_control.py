@@ -160,7 +160,7 @@ def analyze_any(p, disallowed, msg, dirs_seen):
         stat_res = os.stat(p)
     except Exception as e:
         eprint('%s: %s' % (p, e))
-        return
+        return False
 
     mode = stat_res.st_mode
     if S_ISDIR(mode):
@@ -168,7 +168,7 @@ def analyze_any(p, disallowed, msg, dirs_seen):
         inode = stat_res.st_ino
         if inode:
             if inode in dirs_seen:
-                return
+                return False
             dirs_seen.add(inode)
 
         return analyze_dir(p, disallowed, msg, dirs_seen)
@@ -184,7 +184,8 @@ def analyze_dir(d, disallowed, msg, dirs_seen):
     warned = False
 
     for f in os.listdir(d):
-        warned = warned or analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+        w = analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+        warned = warned or w
 
     return warned
 
@@ -192,7 +193,8 @@ def analyze_paths(paths, disallowed, msg, dirs_seen):
     warned = False
 
     for p in paths:
-        warned = warned or analyze_any(p, disallowed, msg, dirs_seen)
+        w = analyze_any(p, disallowed, msg, dirs_seen)
+        warned = warned or w
 
     return warned
 
