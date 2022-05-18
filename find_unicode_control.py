@@ -13,7 +13,7 @@ control characters.
 """
 from __future__ import print_function
 
-import sys, os, argparse, re, unicodedata, subprocess, imp
+import sys, os, argparse, re, unicodedata, subprocess
 import importlib
 from stat import *
 
@@ -34,6 +34,9 @@ if platform.python_version()[0] == '2':
 else:
     _chr = chr
     do_unicode = _unicode
+
+if platform.python_version_tuple() < ('3','04','0'):
+    import imp
 
 # .git and .hg will get excluded when they're part of a directory tree being
 # scanned but not when they're explicitly specified as targets.  That is:
@@ -246,7 +249,7 @@ if __name__ == '__main__':
         msg = 'bidirectional control characters'
 
     if args.config:
-        if platform.python_version_tuple() >= ('3','4','0'):
+        if platform.python_version_tuple() >= ('3','04','0'):
             # load settings file, method for Python >= 3.4
             spec = importlib.util.spec_from_file_location("settings", args.config)
             settings = importlib.util.module_from_spec(spec)
