@@ -1,7 +1,7 @@
 # Project configuration
 [project]
 name = "find-unicode-control"
-version = "0.1"
+version = "0.1.1"
 description = "Script to find Unicode control characters"
 requires-python = ">=2.7"
 keywords = [
@@ -15,3 +15,6 @@ readme = "README.md"
 
 [project.urls]
 "Homepage" = "https://github.com/siddhesh/find-unicode-control"
+
+[project.scripts]
+find-unicode-control = "find_unicode_control.cli:main"

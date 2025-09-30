@@ -61,6 +61,7 @@ scan_exclude = [r'/\.git/', r'/\.hg/', r'\.desktop$', r'ChangeLog$', r'NEWS$',
 scan_exclude_mime = [r'text/x-po$', r'text/x-tex$', r'text/x-troff$',
                      r'text/html$']
 verbose_mode = False
+detailed_mode = False
 
 # Print to stderr in verbose mode.
 def eprint(*args, **kwargs):
@@ -208,23 +209,9 @@ def nonprint_unicode(c):
         return True
     return False
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Look for Unicode control characters")
-    parser.add_argument('path', metavar='path', nargs='+',
-            help='Sources to analyze')
-    parser.add_argument('-p', '--nonprint', required=False,
-            type=str, choices=['all', 'bidi'],
-            help='Look for either all non-printable unicode characters or bidirectional control characters.')
-    parser.add_argument('-v', '--verbose', required=False, action='store_true',
-            help='Verbose mode.')
-    parser.add_argument('-d', '--detailed', required=False, action='store_true',
-            help='Print line numbers where characters occur.')
-    parser.add_argument('-t', '--notests', required=False,
-            action='store_true', help='Exclude tests (basically test.* as a component of path).')
-    parser.add_argument('-c', '--config', required=False, type=str,
-            help='Configuration file to read settings from.')
-
-    args = parser.parse_args()
+# Entry point for the analysis.  Arguments are passed in cli.py.
+def start_unicode_analysis(args):
+    global verbose_mode, detailed_mode
     verbose_mode = args.verbose
     detailed_mode = args.detailed
 
