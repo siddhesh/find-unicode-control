@@ -6,8 +6,8 @@
 # Batch script to scan all files in branches and tags of
 # a git repository.
 #
-# Both this script and the find-find_unicode_control.py script
-# should be accessible from the PATH.
+# This script should be accessible from the PATH.  Additionally, install the
+# find-unicode-control package using pip.
 #
 # Change directory into the local git directory to be scanned
 # then execute this script with either:
@@ -147,6 +147,6 @@ do
     exit 1
   fi
 
-  find_unicode_control.py -p bidi .
+  find-unicode-control -p bidi .
   
 done
