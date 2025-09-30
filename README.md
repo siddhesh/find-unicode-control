@@ -8,8 +8,16 @@ and `find-unicode-control` could eventually get disposed.
 
 ## Installation
 
+From the sources, simply do:
+
 ```
-pip3 install .
+$ pip3 install .
+```
+
+Alternatively, get a released version from PyPI:
+
+```
+$ pip3 install find-unicode-control
 ```
 
 ## Usage
@@ -47,7 +55,7 @@ Using the `-d` flag, the output is more detailed, showing line numbers in
 files, but this mode is also slower:
 
 ```
-find-unicode-control -p bidi -d .
+$ find-unicode-control -p bidi -d .
 ./commenting-out.c:4 bidirectional control characters: ['\u202e', '\u2066', '\u2069', '\u2066']
 ./commenting-out.c:6 bidirectional control characters: ['\u202e', '\u2066']
 ./early-return.c:4 bidirectional control characters: ['\u2067']
