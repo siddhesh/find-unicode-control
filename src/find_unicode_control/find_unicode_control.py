@@ -15,6 +15,7 @@ from __future__ import print_function
 
 import sys, os, argparse, re, unicodedata, subprocess
 import importlib
+import importlib.util
 from stat import *
 
 try:
