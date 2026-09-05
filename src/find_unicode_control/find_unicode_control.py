@@ -15,6 +15,8 @@ from __future__ import print_function
 
 import sys, os, argparse, re, unicodedata, subprocess
 import importlib
+import io
+import threading
 from stat import *
 
 try:
@@ -62,36 +64,63 @@ scan_exclude_mime = [r'text/x-po$', r'text/x-tex$', r'text/x-troff$',
                      r'text/html$']
 verbose_mode = False
 detailed_mode = False
+jobs = 1
+
+# Analysis threads buffer their output, so that a parallel scan still reports
+# files in the order in which they were found.
+_thread_output = threading.local()
+
+def _stream(name):
+    buf = getattr(_thread_output, name, None)
+    if buf is not None:
+        return buf
+    return sys.stdout if name == 'out' else sys.stderr
+
+# Print a finding to stdout.
+def wprint(*args, **kwargs):
+    print(*args, file=_stream('out'), **kwargs)
 
 # Print to stderr in verbose mode.
 def eprint(*args, **kwargs):
     if verbose_mode:
-        print(*args, file=sys.stderr, **kwargs)
+        print(*args, file=_stream('err'), **kwargs)
 
 # Decode a single latin1 line.
 def decodeline(inf):
     return do_unicode(inf, 'utf-8')
 
-# Make a text string from a file, attempting to decode from latin1 if necessary.
-# Other non-utf-8 locales are not supported at the moment.
-def getfiletext(filename):
+# Make a text string from an already open file, attempting to decode from
+# latin1 if necessary.  Other non-utf-8 locales are not supported at the
+# moment.  The caller passes the binary file object it used to detect the mime
+# type, so that the file is opened only once.
+def getfiletext(filename, fobj):
     text = None
-    with open(filename) as infile:
+    infile = io.TextIOWrapper(fobj, encoding='utf-8')
+    try:
         try:
             if detailed_mode:
-                return [decodeline(inf) for inf in infile]
+                return [inf for inf in infile]
         except Exception as e:
             eprint('%s: %s' % (filename, e))
             return None
 
         try:
-            text = decodeline(''.join(infile))
+            text = ''.join(infile)
         except UnicodeDecodeError:
             eprint('%s: Retrying with latin1' % filename)
             try:
-                text = ''.join([decodeline(inf) for inf in infile])
+                infile.detach()
+                fobj.seek(0)
+                infile = io.TextIOWrapper(fobj, encoding='latin-1')
+                text = ''.join(infile)
             except Exception as e:
                 eprint('%s: %s' % (filename, e))
+    finally:
+        # Leave closing the file to the caller.
+        try:
+            infile.detach()
+        except ValueError:
+            pass
     if text:
         return set(text)
     else:
@@ -104,7 +133,7 @@ def analyze_text_detailed(filename, text, disallowed, msg):
         line = line + 1
         subset = [c for c in t if _chr(ord(c)) in disallowed]
         if subset:
-            print('%s:%d %s: %s' % (filename, line, msg, subset))
+            wprint('%s:%d %s: %s' % (filename, line, msg, subset))
             warned = True
     if not warned:
         eprint('%s: OK' % filename)
@@ -119,52 +148,85 @@ def analyze_text(filename, text, disallowed, msg):
         return analyze_text_detailed(filename, text, disallowed, msg)
 
     if not text.isdisjoint(disallowed):
-        print('%s: %s: %s' % (filename, msg, text & disallowed))
+        wprint('%s: %s: %s' % (filename, msg, text & disallowed))
         return True
     else:
         eprint('%s: OK' % filename)
 
     return False
 
-def get_mime(f):
+# Detect the mime type, preferably from the descriptor the caller is about to
+# read, so that the file does not have to be opened a second time.
+def get_mime(f, fobj=None):
     if magic:
+        if fobj is not None:
+            return magic.detect_from_fobj(fobj).mime_type
         return magic.detect_from_filename(f).mime_type
     args = ['file', '--mime-type', f]
     proc = subprocess.Popen(args, stdout=subprocess.PIPE)
     m = [decodeline(x[:-1]) for x in proc.stdout][0].split(':')[1].strip()
     return m
 
+# Fast check, just the file name.
+def excluded_by_name(f):
+    return bool([e for e in scan_exclude if re.search(e, f)])
+
+# Slower check, mime type.
+def excluded_by_mime(m):
+    return not 'text/' in m \
+            or bool([e for e in scan_exclude_mime if re.search(e, m)])
+
 def should_read(f):
-    # Fast check, just the file name.
-    if [e for e in scan_exclude if re.search(e, f)]:
-        return False
+    return not excluded_by_name(f) and not excluded_by_mime(get_mime(f))
 
-    # Slower check, mime type.
-    m = get_mime(f)
-    if not 'text/' in m \
-            or [e for e in scan_exclude_mime if re.search(e, m)]:
-        return False
-    return True
-
-# Get file text and feed into analyze_text.
+# Get file text and feed into analyze_text.  The file is opened once: the same
+# descriptor serves the mime type detection and the read of the contents.
 def analyze_file(f, disallowed, msg):
     eprint('%s: Reading file' % f)
-    if should_read(f):
-        text = getfiletext(f)
-        if text:
-            return analyze_text(f, text, disallowed, msg)
-    else:
+    if excluded_by_name(f):
         eprint('%s: SKIPPED' % f)
+        return False
+
+    # Symbolic links carry no text of their own and empty files carry no text
+    # at all; libmagic reports inode/symlink and inode/x-empty for them, so
+    # deciding from the metadata keeps the outcome and saves the open().
+    try:
+        lstat_res = os.lstat(f)
+        if S_ISLNK(lstat_res.st_mode) or lstat_res.st_size == 0:
+            eprint('%s: SKIPPED' % f)
+            return False
+    except Exception as e:
+        eprint('%s: %s' % (f, e))
+        return False
+
+    try:
+        fobj = open(f, 'rb')
+    except Exception as e:
+        eprint('%s: %s' % (f, e))
+        return False
+
+    with fobj:
+        if excluded_by_mime(get_mime(f, fobj)):
+            eprint('%s: SKIPPED' % f)
+            return False
+
+        fobj.seek(0)
+        text = getfiletext(f, fobj)
+
+    if text:
+        return analyze_text(f, text, disallowed, msg)
 
     return False
 
-# Actual implementation of the recursive descent into directories.
-def analyze_any(p, disallowed, msg, dirs_seen):
+# Actual implementation of the recursive descent into directories.  Files are
+# collected first and analyzed afterwards, so that the analysis can run in
+# parallel while the report keeps the order of the descent.
+def collect_any(p, dirs_seen, files):
     try:
         stat_res = os.stat(p)
     except Exception as e:
         eprint('%s: %s' % (p, e))
-        return False
+        return
 
     mode = stat_res.st_mode
     if S_ISDIR(mode):
@@ -172,35 +234,68 @@ def analyze_any(p, disallowed, msg, dirs_seen):
         inode = stat_res.st_ino
         if inode:
             if inode in dirs_seen:
-                return False
+                return
             dirs_seen.add(inode)
 
-        return analyze_dir(p, disallowed, msg, dirs_seen)
+        collect_dir(p, dirs_seen, files)
     elif S_ISREG(mode):
-        return analyze_file(p, disallowed, msg)
+        files.append(p)
     else:
         eprint('%s: UNREADABLE' % p)
 
-    return False
+# Recursively collect files in the directory.
+def collect_dir(d, dirs_seen, files):
+    for f in os.listdir(d):
+        collect_any(os.path.join(d, f), dirs_seen, files)
 
-# Recursively analyze files in the directory.
-def analyze_dir(d, disallowed, msg, dirs_seen):
+# Analyze one file with its output kept in per-thread buffers, so that the
+# caller can print the results in order.
+def analyze_file_buffered(args):
+    f, disallowed, msg = args
+    _thread_output.out = io.StringIO()
+    _thread_output.err = io.StringIO()
+    try:
+        warned = analyze_file(f, disallowed, msg)
+        return warned, _thread_output.out.getvalue(), _thread_output.err.getvalue()
+    finally:
+        _thread_output.out = None
+        _thread_output.err = None
+
+def analyze_files(files, disallowed, msg):
     warned = False
 
-    for f in os.listdir(d):
-        w = analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+    if jobs > 1:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+        except ImportError:
+            ThreadPoolExecutor = None
+
+        if ThreadPoolExecutor:
+            # The scan spends most of its time waiting for file I/O, so threads
+            # overlap that wait even though they share the interpreter lock.
+            work = [(f, disallowed, msg) for f in files]
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                for w, out, err in pool.map(analyze_file_buffered, work):
+                    sys.stdout.write(out)
+                    sys.stderr.write(err)
+                    warned = warned or w
+            return warned
+
+        eprint('Parallel analysis is unavailable, falling back to one job')
+
+    for f in files:
+        w = analyze_file(f, disallowed, msg)
         warned = warned or w
 
     return warned
 
 def analyze_paths(paths, disallowed, msg, dirs_seen):
-    warned = False
+    files = []
 
     for p in paths:
-        w = analyze_any(p, disallowed, msg, dirs_seen)
-        warned = warned or w
+        collect_any(p, dirs_seen, files)
 
-    return warned
+    return analyze_files(files, disallowed, msg)
 
 # All control characters.  We omit the ascii control characters.
 def nonprint_unicode(c):
@@ -212,8 +307,10 @@ def nonprint_unicode(c):
 # Entry point for the analysis.  Arguments are passed in cli.py.
 def start_unicode_analysis(args):
     global verbose_mode, detailed_mode
+    global jobs
     verbose_mode = args.verbose
     detailed_mode = args.detailed
+    jobs = max(1, getattr(args, 'jobs', 1))
 
     if not args.nonprint:
         # Formatting control characters in the unicode space.  This includes the

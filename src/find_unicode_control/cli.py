@@ -14,6 +14,8 @@ def main():
             help='Verbose mode.')
     parser.add_argument('-d', '--detailed', required=False, action='store_true',
             help='Print line numbers where characters occur.')
+    parser.add_argument('-j', '--jobs', required=False, type=int, default=1,
+            help='Number of files to analyze in parallel.  The scan waits on file I/O, so values above one help on network file systems.')
     parser.add_argument('-t', '--notests', required=False,
             action='store_true', help='Exclude tests (basically test.* as a component of path).')
     parser.add_argument('-c', '--config', required=False, type=str,
