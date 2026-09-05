@@ -212,7 +212,7 @@ def nonprint_unicode(c):
 
 # Entry point for the analysis.  Arguments are passed in cli.py.
 def start_unicode_analysis(args):
-    global verbose_mode, detailed_mode
+    global verbose_mode, detailed_mode, scan_exclude, scan_exclude_mime
     verbose_mode = args.verbose
     detailed_mode = args.detailed
 
