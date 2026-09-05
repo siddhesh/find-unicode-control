@@ -15,6 +15,7 @@ from __future__ import print_function
 
 import sys, os, argparse, re, unicodedata, subprocess
 import importlib
+import io
 from stat import *
 
 try:
@@ -72,26 +73,38 @@ def eprint(*args, **kwargs):
 def decodeline(inf):
     return do_unicode(inf, 'utf-8')
 
-# Make a text string from a file, attempting to decode from latin1 if necessary.
-# Other non-utf-8 locales are not supported at the moment.
-def getfiletext(filename):
+# Make a text string from an already open file, attempting to decode from
+# latin1 if necessary.  Other non-utf-8 locales are not supported at the
+# moment.  The caller passes the binary file object it used to detect the mime
+# type, so that the file is opened only once.
+def getfiletext(filename, fobj):
     text = None
-    with open(filename) as infile:
+    infile = io.TextIOWrapper(fobj, encoding='utf-8')
+    try:
         try:
             if detailed_mode:
-                return [decodeline(inf) for inf in infile]
+                return [inf for inf in infile]
         except Exception as e:
             eprint('%s: %s' % (filename, e))
             return None
 
         try:
-            text = decodeline(''.join(infile))
+            text = ''.join(infile)
         except UnicodeDecodeError:
             eprint('%s: Retrying with latin1' % filename)
             try:
-                text = ''.join([decodeline(inf) for inf in infile])
+                infile.detach()
+                fobj.seek(0)
+                infile = io.TextIOWrapper(fobj, encoding='latin-1')
+                text = ''.join(infile)
             except Exception as e:
                 eprint('%s: %s' % (filename, e))
+    finally:
+        # Leave closing the file to the caller.
+        try:
+            infile.detach()
+        except ValueError:
+            pass
     if text:
         return set(text)
     else:
@@ -126,35 +139,66 @@ def analyze_text(filename, text, disallowed, msg):
 
     return False
 
-def get_mime(f):
+# Detect the mime type, preferably from the descriptor the caller is about to
+# read, so that the file does not have to be opened a second time.
+def get_mime(f, fobj=None):
     if magic:
+        if fobj is not None:
+            return magic.detect_from_fobj(fobj).mime_type
         return magic.detect_from_filename(f).mime_type
     args = ['file', '--mime-type', f]
     proc = subprocess.Popen(args, stdout=subprocess.PIPE)
     m = [decodeline(x[:-1]) for x in proc.stdout][0].split(':')[1].strip()
     return m
 
+# Fast check, just the file name.
+def excluded_by_name(f):
+    return bool([e for e in scan_exclude if re.search(e, f)])
+
+# Slower check, mime type.
+def excluded_by_mime(m):
+    return not 'text/' in m \
+            or bool([e for e in scan_exclude_mime if re.search(e, m)])
+
 def should_read(f):
-    # Fast check, just the file name.
-    if [e for e in scan_exclude if re.search(e, f)]:
-        return False
+    return not excluded_by_name(f) and not excluded_by_mime(get_mime(f))
 
-    # Slower check, mime type.
-    m = get_mime(f)
-    if not 'text/' in m \
-            or [e for e in scan_exclude_mime if re.search(e, m)]:
-        return False
-    return True
-
-# Get file text and feed into analyze_text.
+# Get file text and feed into analyze_text.  The file is opened once: the same
+# descriptor serves the mime type detection and the read of the contents.
 def analyze_file(f, disallowed, msg):
     eprint('%s: Reading file' % f)
-    if should_read(f):
-        text = getfiletext(f)
-        if text:
-            return analyze_text(f, text, disallowed, msg)
-    else:
+    if excluded_by_name(f):
         eprint('%s: SKIPPED' % f)
+        return False
+
+    # Symbolic links carry no text of their own and empty files carry no text
+    # at all; libmagic reports inode/symlink and inode/x-empty for them, so
+    # deciding from the metadata keeps the outcome and saves the open().
+    try:
+        lstat_res = os.lstat(f)
+        if S_ISLNK(lstat_res.st_mode) or lstat_res.st_size == 0:
+            eprint('%s: SKIPPED' % f)
+            return False
+    except Exception as e:
+        eprint('%s: %s' % (f, e))
+        return False
+
+    try:
+        fobj = open(f, 'rb')
+    except Exception as e:
+        eprint('%s: %s' % (f, e))
+        return False
+
+    with fobj:
+        if excluded_by_mime(get_mime(f, fobj)):
+            eprint('%s: SKIPPED' % f)
+            return False
+
+        fobj.seek(0)
+        text = getfiletext(f, fobj)
+
+    if text:
+        return analyze_text(f, text, disallowed, msg)
 
     return False
 
