@@ -16,6 +16,7 @@ from __future__ import print_function
 import sys, os, argparse, re, unicodedata, subprocess
 import importlib
 import io
+import threading
 from stat import *
 
 try:
@@ -63,11 +64,26 @@ scan_exclude_mime = [r'text/x-po$', r'text/x-tex$', r'text/x-troff$',
                      r'text/html$']
 verbose_mode = False
 detailed_mode = False
+jobs = 1
+
+# Analysis threads buffer their output, so that a parallel scan still reports
+# files in the order in which they were found.
+_thread_output = threading.local()
+
+def _stream(name):
+    buf = getattr(_thread_output, name, None)
+    if buf is not None:
+        return buf
+    return sys.stdout if name == 'out' else sys.stderr
+
+# Print a finding to stdout.
+def wprint(*args, **kwargs):
+    print(*args, file=_stream('out'), **kwargs)
 
 # Print to stderr in verbose mode.
 def eprint(*args, **kwargs):
     if verbose_mode:
-        print(*args, file=sys.stderr, **kwargs)
+        print(*args, file=_stream('err'), **kwargs)
 
 # Decode a single latin1 line.
 def decodeline(inf):
@@ -117,7 +133,7 @@ def analyze_text_detailed(filename, text, disallowed, msg):
         line = line + 1
         subset = [c for c in t if _chr(ord(c)) in disallowed]
         if subset:
-            print('%s:%d %s: %s' % (filename, line, msg, subset))
+            wprint('%s:%d %s: %s' % (filename, line, msg, subset))
             warned = True
     if not warned:
         eprint('%s: OK' % filename)
@@ -132,7 +148,7 @@ def analyze_text(filename, text, disallowed, msg):
         return analyze_text_detailed(filename, text, disallowed, msg)
 
     if not text.isdisjoint(disallowed):
-        print('%s: %s: %s' % (filename, msg, text & disallowed))
+        wprint('%s: %s: %s' % (filename, msg, text & disallowed))
         return True
     else:
         eprint('%s: OK' % filename)
@@ -202,13 +218,15 @@ def analyze_file(f, disallowed, msg):
 
     return False
 
-# Actual implementation of the recursive descent into directories.
-def analyze_any(p, disallowed, msg, dirs_seen):
+# Actual implementation of the recursive descent into directories.  Files are
+# collected first and analyzed afterwards, so that the analysis can run in
+# parallel while the report keeps the order of the descent.
+def collect_any(p, dirs_seen, files):
     try:
         stat_res = os.stat(p)
     except Exception as e:
         eprint('%s: %s' % (p, e))
-        return False
+        return
 
     mode = stat_res.st_mode
     if S_ISDIR(mode):
@@ -216,35 +234,68 @@ def analyze_any(p, disallowed, msg, dirs_seen):
         inode = stat_res.st_ino
         if inode:
             if inode in dirs_seen:
-                return False
+                return
             dirs_seen.add(inode)
 
-        return analyze_dir(p, disallowed, msg, dirs_seen)
+        collect_dir(p, dirs_seen, files)
     elif S_ISREG(mode):
-        return analyze_file(p, disallowed, msg)
+        files.append(p)
     else:
         eprint('%s: UNREADABLE' % p)
 
-    return False
+# Recursively collect files in the directory.
+def collect_dir(d, dirs_seen, files):
+    for f in os.listdir(d):
+        collect_any(os.path.join(d, f), dirs_seen, files)
 
-# Recursively analyze files in the directory.
-def analyze_dir(d, disallowed, msg, dirs_seen):
+# Analyze one file with its output kept in per-thread buffers, so that the
+# caller can print the results in order.
+def analyze_file_buffered(args):
+    f, disallowed, msg = args
+    _thread_output.out = io.StringIO()
+    _thread_output.err = io.StringIO()
+    try:
+        warned = analyze_file(f, disallowed, msg)
+        return warned, _thread_output.out.getvalue(), _thread_output.err.getvalue()
+    finally:
+        _thread_output.out = None
+        _thread_output.err = None
+
+def analyze_files(files, disallowed, msg):
     warned = False
 
-    for f in os.listdir(d):
-        w = analyze_any(os.path.join(d, f), disallowed, msg, dirs_seen)
+    if jobs > 1:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+        except ImportError:
+            ThreadPoolExecutor = None
+
+        if ThreadPoolExecutor:
+            # The scan spends most of its time waiting for file I/O, so threads
+            # overlap that wait even though they share the interpreter lock.
+            work = [(f, disallowed, msg) for f in files]
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                for w, out, err in pool.map(analyze_file_buffered, work):
+                    sys.stdout.write(out)
+                    sys.stderr.write(err)
+                    warned = warned or w
+            return warned
+
+        eprint('Parallel analysis is unavailable, falling back to one job')
+
+    for f in files:
+        w = analyze_file(f, disallowed, msg)
         warned = warned or w
 
     return warned
 
 def analyze_paths(paths, disallowed, msg, dirs_seen):
-    warned = False
+    files = []
 
     for p in paths:
-        w = analyze_any(p, disallowed, msg, dirs_seen)
-        warned = warned or w
+        collect_any(p, dirs_seen, files)
 
-    return warned
+    return analyze_files(files, disallowed, msg)
 
 # All control characters.  We omit the ascii control characters.
 def nonprint_unicode(c):
@@ -256,8 +307,10 @@ def nonprint_unicode(c):
 # Entry point for the analysis.  Arguments are passed in cli.py.
 def start_unicode_analysis(args):
     global verbose_mode, detailed_mode
+    global jobs
     verbose_mode = args.verbose
     detailed_mode = args.detailed
+    jobs = max(1, getattr(args, 'jobs', 1))
 
     if not args.nonprint:
         # Formatting control characters in the unicode space.  This includes the

@@ -23,7 +23,7 @@ $ pip3 install find-unicode-control
 ## Usage
 
 ```
-usage: find-unicode-control [-h] [-p {all,bidi}] [-v] [-c CONFIG] path [path ...]
+usage: find-unicode-control [-h] [-p {all,bidi}] [-v] [-j JOBS] [-c CONFIG] path [path ...]
 
 Look for Unicode control characters
 
@@ -37,6 +37,7 @@ optional arguments:
   -v, --verbose         Verbose mode.
   -d, --detailed        Print line numbers where characters occur.
   -t, --notests         Exclude tests (basically test.* as a component of path).
+  -j JOBS, --jobs JOBS  Number of files to analyze in parallel.  The scan waits on file I/O, so values above one help on network file systems.
   -c CONFIG, --config CONFIG
                         Configuration file to read settings from.
 ```
