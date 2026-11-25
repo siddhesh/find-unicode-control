@@ -238,6 +238,7 @@ def start_unicode_analysis(args):
     if args.config:
         if platform.python_version_tuple() >= ('3','04','0'):
             # load settings file, method for Python >= 3.4
+            import importlib.util
             spec = importlib.util.spec_from_file_location("settings", args.config)
             settings = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(settings)
